@@ -4,8 +4,8 @@ import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
 import random as random
-
-
+import seaborn as sns
+import matplotlib.pyplot as plt
 from plotly.express.colors import sample_colorscale, n_colors, hex_to_rgb
 
 

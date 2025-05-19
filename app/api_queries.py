@@ -6,7 +6,6 @@ import time
 import json as json
 
 
-
 def load_data(doi_list, db_selection, my_email_address, opencitations_access_token, semanticscholar_api_key):
     if len(doi_list) == 0:
         st.warning('Please enter at least one valid DOI or generate a random sample of DOIs')
@@ -258,7 +257,7 @@ def get_openaire_dois_list(dict_or_list, dois):
 @st.cache_data(show_spinner=False)
 def get_openaire_counts(dois):
     start_time = time.time()
-    url = f"http://api.openaire.eu/search/researchProducts"
+    url = f"https://api.openaire.eu/graph/v1/researchProducts"
     params = {'doi': dois,
               'format': 'json'}
     r = requests.get(url, params=params)
