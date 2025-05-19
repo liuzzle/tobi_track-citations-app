@@ -257,49 +257,77 @@ def get_openaire_dois_list(dict_or_list, dois):
 @st.cache_data(show_spinner=False)
 def get_openaire_counts(dois):
     start_time = time.time()
-    url = f"https://api.openaire.eu/graph/v1/researchProducts"
-    params = {'doi': dois,
-              'format': 'json'}
-    r = requests.get(url, params=params)
-    r.raise_for_status()
-    all_results = r.json()['response']['results']['result']
-
+    base_url = "https://api.openaire.eu/search/publications"
     extracted_dois = []
     authors = []
     citations = []
     references = []
-    for d in all_results:
-        oaf_entity = d['metadata']['oaf:entity']
-        oaf_result = d['metadata']['oaf:entity']['oaf:result']
-        current_dois_list = get_openaire_dois_list(oaf_result['pid'], dois)
-        l = len(current_dois_list)
-        extracted_dois += current_dois_list
-        if 'creator' in oaf_result:
-            if type(oaf_result['creator']) is dict:
-                authors += [1]*l
-            else:
-                ranks = set()
-                for c in oaf_result['creator']:
-                    ranks.add(c['@rank'])
-                authors += [len(ranks)]*l
-        else:
-            authors += [0]*l
-        m = oaf_result['measure']
-        citations += [next(int(m[i]['@score']) for i in range(len(m)) if m[i]['@id'] == 'influence_alt')]*l
-        if 'extraInfo' in oaf_entity:
-            if type(oaf_entity['extraInfo']) is dict:
-                references += [len(oaf_entity['extraInfo']['references']['reference'])]*l
-            else:
-                references += [len(oaf_entity['extraInfo'][0]['references']['reference'])]*l
-        else:
-            references += [np.nan]*l
+
+    for doi in dois:
+        params = {
+            'doi': doi,
+            'format': 'json'
+        }
+        try:
+            response = requests.get(base_url, params=params)
+            response.raise_for_status()
+            data = response.json()
+
+            results = data.get('response', {}).get('results', {}).get('result', [])
+
+            for result in results:
+                oaf_entity = result.get('metadata', {}).get('oaf:entity', {})
+                oaf_result = oaf_entity.get('oaf:result', {})
+                current_dois_list = get_openaire_dois_list(oaf_result.get('pid', {}), [doi])
+                l = len(current_dois_list)
+
+                extracted_dois += current_dois_list
+                
+                # Authors
+                creators = oaf_result.get('creator', [])
+                if isinstance(creators, dict):
+                    authors += [1] * l
+                elif isinstance(creators, list):
+                    ranks = set(c['@rank'] for c in creators if '@rank' in c)
+                    authors += [len(ranks)] * l
+                else:
+                    authors += [0] * l
+
+                # Citations
+                influence_score = 0
+                measures = oaf_result.get('measure', [])
+                if isinstance(measures, list):
+                    for measure in measures:
+                        if measure.get('@id') == 'influence_alt':
+                            influence_score = int(measure.get('@score', 0))
+                            break
+                citations += [influence_score] * l
+
+                # References
+                references_count = 0
+                extra_info = oaf_entity.get('extraInfo', [])
+                if isinstance(extra_info, list):
+                    for info in extra_info:
+                        references_data = info.get('references', {}).get('reference', [])
+                        if isinstance(references_data, list):
+                            references_count = len(references_data)
+                            break
+                references += [references_count] * l
+
+        except requests.RequestException as e:
+            st.warning(f"Error fetching data for DOI {doi}: {str(e)}")
+            continue
+
+    # Construct the DataFrame
     df_counts = pd.DataFrame({
         'doi': extracted_dois,
         'authors': authors,
         'citations': citations,
-        'references': references})
+        'references': references
+    })
     df_counts = pd.melt(df_counts, 'doi', var_name='count', value_name='value')
     df_counts['database'] = 'OpenAIRE'
+
     st.write(f'OpenAIRE data loaded in %.2f seconds.' % (time.time() - start_time))
     return df_counts
 
