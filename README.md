@@ -1,4 +1,6 @@
-## Track your scholarly metadata 
+## Track your scholarly metadata
+
+Try out this tool: https://tobi-open-metadata-tracker.streamlit.app/
 
 Try out this tool: https://tobi-open-metadata-tracker.streamlit.app/
 
