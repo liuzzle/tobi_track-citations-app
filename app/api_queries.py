@@ -266,80 +266,39 @@ def get_openaire_dois_list(dict_or_list, dois):
 @st.cache_data(show_spinner=False)
 def get_openaire_counts(dois):
     start_time = time.time()
-    base_url = "https://api.openaire.eu/search/publications"
-    extracted_dois = []
-    authors = []
-    citations = []
-    references = []
+    base_url = "https://api.openaire.eu/graph/v1/researchProducts"
+    headers = {"Accept": "application/json"}
+
+    all_records = []
 
     for doi in dois:
         params = {
-            'doi': doi,
-            'format': 'json'
+            "pid": doi
         }
+
         try:
-            response = requests.get(base_url, params=params)
-            response.raise_for_status()
-            data = response.json()
+            r = requests.get(base_url, params=params, headers=headers)
+            r.raise_for_status()
+            result = r.json()
+            if result:
+                record = result[0] if isinstance(result, list) else result
+                all_records.append({
+                    "doi": doi.lower(),
+                    "citations": record.get("citationCount"),
+                    "references": record.get("referenceCount"),
+                    "authors": record.get("authorCount")
+                })
+        except Exception as e:
+            st.warning(f"OpenAIRE error for DOI {doi}: {e}")
 
-            results = data.get('response', {}).get('results', {}).get('result', [])
+    if not all_records:
+        return pd.DataFrame()
 
-            for result in results:
-                oaf_entity = result.get('metadata', {}).get('oaf:entity', {})
-                oaf_result = oaf_entity.get('oaf:result', {})
-                current_dois_list = get_openaire_dois_list(oaf_result.get('pid', {}), [doi])
-                l = len(current_dois_list)
-
-                extracted_dois += current_dois_list
-                
-                # Authors
-                creators = oaf_result.get('creator', [])
-                if isinstance(creators, dict):
-                    authors += [1] * l
-                elif isinstance(creators, list):
-                    ranks = set(c['@rank'] for c in creators if '@rank' in c)
-                    authors += [len(ranks)] * l
-                else:
-                    authors += [0] * l
-
-                # Citations
-                influence_score = 0
-                measures = oaf_result.get('measure', [])
-                if isinstance(measures, list):
-                    for measure in measures:
-                        if measure.get('@id') == 'influence_alt':
-                            influence_score = int(measure.get('@score', 0))
-                            break
-                citations += [influence_score] * l
-
-                # References
-                references_count = 0
-                extra_info = oaf_entity.get('extraInfo', [])
-                if isinstance(extra_info, list):
-                    for info in extra_info:
-                        references_data = info.get('references', {}).get('reference', [])
-                        if isinstance(references_data, list):
-                            references_count = len(references_data)
-                            break
-                references += [references_count] * l
-
-        except requests.RequestException as e:
-            st.warning(f"Error fetching data for DOI {doi}: {str(e)}")
-            continue
-
-    # Construct the DataFrame
-    df_counts = pd.DataFrame({
-        'doi': extracted_dois,
-        'authors': authors,
-        'citations': citations,
-        'references': references
-    })
-    df_counts = pd.melt(df_counts, 'doi', var_name='count', value_name='value')
+    df_counts = pd.DataFrame(all_records)
+    df_counts = pd.melt(df_counts, id_vars='doi', var_name='count', value_name='value')
     df_counts['database'] = 'OpenAIRE'
-
-    st.write(f'OpenAIRE data loaded in %.2f seconds.' % (time.time() - start_time))
+    st.write(f'OpenAIRE Graph API data loaded in %.2f seconds.' % (time.time() - start_time))
     return df_counts
-
 
 @st.cache_data(show_spinner=False)
 def get_datacite_counts(dois):
