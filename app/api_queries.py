@@ -172,47 +172,40 @@ def get_opencitations_index_counts(dois, opencitations_access_token=''):
 def get_opencitations_meta_counts(dois, opencitations_access_token=''):
     start_time = time.time()
     headers = {"authorization": f"{opencitations_access_token}"}
-    url = 'https://w3id.org/oc/meta/api/v1/' + '__'.join(['doi:' + doi for doi in dois])
     
-    try:
-        r = requests.get(url, headers=headers)
-        r.raise_for_status()
-        results = r.json()
-        st.json(results)
+    records = []
+    
+    for doi in dois:
+        url = f'https://opencitations.net/meta/api/v1/metadata/doi:{doi}'
+        try:
+            r = requests.get(url, headers=headers)
+            r.raise_for_status()
+            result = r.json()
 
-        if not isinstance(results, list) or not results:
-            st.warning('OpenCitations Meta returned empty or unexpected response.')
-            return pd.DataFrame()
+            if not isinstance(result, list) or not result:
+                continue
 
-        df_counts = pd.DataFrame(results)
+            metadata = result[0]  # assume first record is most relevant
+            record = {
+                'doi': doi,
+                'authors': metadata.get('author', '').count(';') + (1 if metadata.get('author', '') else 0)
+            }
+            records.append(record)
 
-        if 'author' not in df_counts.columns or 'id' not in df_counts.columns:
-            st.warning('Expected fields not found in OpenCitations Meta response.')
-            return pd.DataFrame()
+        except requests.RequestException as e:
+            st.warning(f"Request error for DOI {doi}: {e}")
+        except Exception as e:
+            st.warning(f"Unexpected error for DOI {doi}: {e}")
 
-        df_counts['author'] = df_counts['author'].apply(lambda x: x.count(';') + (len(x) != 0))
-        df_counts['id'] = df_counts['id'].apply(lambda x: x[4 + x.find('doi:'):x.find(' ')] if isinstance(x, str) else None)
-        df_counts = df_counts.rename(columns={'id': 'doi', 'author': 'authors'})
-
-        if df_counts.duplicated(subset=['doi']).any():
-            d = set(df_counts[df_counts.duplicated(subset=['doi'])]['doi'])
-            d = ', '.join(d)
-            st.warning(f'Multiple author counts for {d} in OpenCitations Meta. Only one count is computed.')
-            df_counts = df_counts.drop_duplicates(subset=['doi'], keep='first')
-
-        df_counts = pd.melt(df_counts, id_vars='doi', var_name='count', value_name='value')
-        df_counts['database'] = 'OpenCitations'
-        st.write(f'*Metadata* query of OpenCitations Meta data loaded in %.2f seconds.' % (time.time() - start_time))
-        return df_counts
-
-    except requests.RequestException as e:
-        st.warning(f"Error fetching OpenCitations Meta data: {e}")
-        return pd.DataFrame()
-    except Exception as e:
-        st.warning(f"Unexpected error in OpenCitations Meta parsing: {e}")
+    if not records:
         return pd.DataFrame()
 
+    df_counts = pd.DataFrame(records)
+    df_counts = pd.melt(df_counts, id_vars='doi', var_name='count', value_name='value')
+    df_counts['database'] = 'OpenCitations'
 
+    st.write(f'*Metadata* queries from OpenCitations Meta completed in %.2f seconds.' % (time.time() - start_time))
+    return df_counts
 
 @st.cache_data(show_spinner=False)
 def get_semanticscholar_counts(dois, semanticscholar_api_key=''):
